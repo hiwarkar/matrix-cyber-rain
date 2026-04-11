@@ -10,6 +10,10 @@
 #define MAX_DELAY 80000
 #define FOG_PARTICLES 100
 
+/* Added max and min speeds for the accumulator */
+#define MAX_RAIN_SPEED 40
+#define MIN_RAIN_SPEED -40
+
 long now_us() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -121,6 +125,10 @@ int main() {
     long delay = 30000;
     long last_time = now_us();
 
+    /* New variables for logic-based speed and reversing */
+    int rain_speed = 10;
+    int rain_accumulator = 0;
+
     clear();
 
     while (1) {
@@ -128,10 +136,18 @@ int main() {
         int ch = getch();
         if (ch == 'q') break;
 
-        if (ch == KEY_UP && delay > MIN_DELAY) delay -= 3000;
-        if (ch == KEY_DOWN && delay < MAX_DELAY) delay += 3000;
-        if (ch == KEY_RIGHT) fog_enabled = 1;
-        if (ch == KEY_LEFT) fog_enabled = 0;
+        /* Directional speed controls replaced with `rain_speed` modifiers */
+        if (ch == KEY_UP) {
+            rain_speed--;
+            if (rain_speed < MIN_RAIN_SPEED) rain_speed = MIN_RAIN_SPEED;
+        }
+        if (ch == KEY_DOWN) {
+            rain_speed++;
+            if (rain_speed > MAX_RAIN_SPEED) rain_speed = MAX_RAIN_SPEED;
+        }
+
+        /* Toggle fog with 'f' key */
+        if (ch == 'f') fog_enabled = !fog_enabled;
 
         /* FPS balance */
         long current = now_us();
@@ -176,7 +192,6 @@ int main() {
             rows = new_rows;
         }
         /* ---------------------------------------------------- */
-
 
         /* 🎬 INTRO */
         if (logo_phase < 3) {
@@ -226,60 +241,75 @@ int main() {
 
         } else {
 
-            /* 🌧️ MATRIX RAIN (UNCHANGED) */
-            for (int i = 0; i < cols; i++) {
+            /* 🌧️ MATRIX RAIN & FOG (MODIFIED FOR ACCUMULATOR & REVERSE) */
+            rain_accumulator += rain_speed;
 
-                int tail = head[i] - len[i];
-                if (tail >= 0 && tail < rows)
-                    mvaddch(tail, i, ' ');
+            while (abs(rain_accumulator) >= 10) {
+                int dir = (rain_accumulator > 0) ? 1 : -1;
+                rain_accumulator -= dir * 10;
 
-                head[i]++;
+                for (int i = 0; i < cols; i++) {
 
-                if (head[i] >= 0 && head[i] < rows) {
-                    attron(COLOR_PAIR(50) | A_BOLD);
-                    mvaddch(head[i], i, stream[i][head[i] % rows]);
-                    attroff(COLOR_PAIR(50) | A_BOLD);
+                    /* Dynamic erase bounds depending on direction */
+                    int erase_y = (dir == 1) ? (head[i] - len[i]) : (head[i] + 1);
+                    if (erase_y >= 0 && erase_y < rows)
+                        mvaddch(erase_y, i, ' ');
 
-                    if (head[i] + 1 < rows)
-                        mvaddch(head[i] + 1, i, stream[i][head[i] % rows]);
-                }
+                    head[i] += dir;
 
-                for (int j = 1; j < len[i]; j++) {
-                    int y = head[i] - j;
+                    if (head[i] >= 0 && head[i] < rows) {
+                        attron(COLOR_PAIR(50) | A_BOLD);
+                        mvaddch(head[i], i, stream[i][head[i] % rows]);
+                        attroff(COLOR_PAIR(50) | A_BOLD);
 
-                    if (y >= 0 && y < rows) {
-                        int shade = (j * shades) / len[i];
-                        if (shade >= shades) shade = shades - 1;
+                        if (head[i] + 1 < rows)
+                            mvaddch(head[i] + 1, i, stream[i][head[i] % rows]);
+                    }
 
-                        attron(COLOR_PAIR(shade + 1));
-                        mvaddch(y, i, stream[i][y % rows]);
-                        attroff(COLOR_PAIR(shade + 1));
+                    for (int j = 1; j < len[i]; j++) {
+                        int y = head[i] - j;
+
+                        if (y >= 0 && y < rows) {
+                            int shade = (j * shades) / len[i];
+                            if (shade >= shades) shade = shades - 1;
+
+                            attron(COLOR_PAIR(shade + 1));
+                            mvaddch(y, i, stream[i][y % rows]);
+                            attroff(COLOR_PAIR(shade + 1));
+                        }
+                    }
+
+                    /* Wrapping behavior bounds adjusted for both directions */
+                    if (dir == 1 && head[i] - len[i] > rows) {
+                        head[i] = -(rand() % rows);
+                        len[i]  = 20 + rand() % MAX_TRAIL;
+                    } else if (dir == -1 && head[i] + 1 < 0) {
+                        head[i] = rows + len[i] + (rand() % rows);
+                        len[i]  = 20 + rand() % MAX_TRAIL;
+                    }
+
+                    if (rand() % 1000 == 0) {
+                        int pos = rand() % rows;
+                        stream[i][pos] = 33 + rand() % 94;
                     }
                 }
 
-                if (head[i] - len[i] > rows) {
-                    head[i] = -(rand() % rows);
-                    len[i]  = 20 + rand() % MAX_TRAIL;
-                }
+                /* 🌫️ fog */
+                if (fog_enabled) {
+                    for (int i = 0; i < FOG_PARTICLES; i++) {
+                        attron(A_DIM);
+                        mvaddch(fog[i].y, fog[i].x, '.');
+                        attroff(A_DIM);
 
-                if (rand() % 1000 == 0) {
-                    int pos = rand() % rows;
-                    stream[i][pos] = 33 + rand() % 94;
-                }
-            }
+                        fog[i].y += dir * (rand() % 2);
 
-            /* 🌫️ fog */
-            if (fog_enabled) {
-                for (int i = 0; i < FOG_PARTICLES; i++) {
-                    attron(A_DIM);
-                    mvaddch(fog[i].y, fog[i].x, '.');
-                    attroff(A_DIM);
-
-                    fog[i].y += (rand() % 2);
-
-                    if (fog[i].y >= rows) {
-                        fog[i].y = 0;
-                        fog[i].x = rand() % cols;
+                        if (fog[i].y >= rows) {
+                            fog[i].y = 0;
+                            fog[i].x = rand() % cols;
+                        } else if (fog[i].y < 0) {
+                            fog[i].y = rows - 1;
+                            fog[i].x = rand() % cols;
+                        }
                     }
                 }
             }
