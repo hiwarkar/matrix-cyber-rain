@@ -19,7 +19,7 @@ A high-performance Matrix rain terminal effect written in C using the `ncurses` 
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/cyber-rain.git
+   git clone https://github.com/hiwarkar/cyber-rain.git
    cd cyber-rain
    ```
 
