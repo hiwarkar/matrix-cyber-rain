@@ -40,9 +40,8 @@ Run the program:
 - `q`: Quit the program
 - `↑` (Up arrow): Increase rain speed
 - `↓` (Down arrow): Decrease rain speed
-- `→` (Right arrow): Enable fog
-- `←` (Left arrow): Disable fog
-
+- `f` (key): Enable and Disable fog effect
+ 
 ## License
 
 This project is open-source and licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
