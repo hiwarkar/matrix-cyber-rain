@@ -31,11 +31,11 @@ typedef struct {
 
 /* 💚 HMATRIX */
 const char *hmatrix[] = {
-    " CCCCC   Y   Y  BBBBB   EEEEE  RRRRR   RRRRR   AAAAA  IIIII  N   N" ,
-    "C         Y Y   B    B  E      R   R   R   R   A   A    I    NN  N",
-    "C          Y    BBBBB   EEEE   RRRRR   RRRRR   AAAAA    I    N N N",
-    "C         Y     B    B  E      R  R    R  R    A   A    I    N  NN",
-    " CCCCC   Y      BBBBB   EEEEE  R   R   R   R   A   A  IIIII  N   N"
+    "  CCCCC   Y     Y   BBBBBB   EEEEEE  RRRRRRR  RRRRRRR  AAAAAA  IIIIII  NN   NN",
+    "CC         Y   Y    BB   BB  EE      RR    RR RR    RR AA   AA   II    NNN  NN",
+    "CC          Y Y     BBBBBB   EEEEE   RRRRRRR  RRRRRRR  AAAAAA    II    NN NN N",
+    "CC           Y      BB   BB  EE      RR  RR   RR  RR   AA   AA   II    NN  NNN",
+    " CCCCCC     Y       BBBBBB   EEEEEE  RR   RR  RR   RR  AA   AA IIIIII  NN   NN"
 };
 
 #define LOGO_H 5
@@ -53,11 +53,24 @@ int main() {
     start_color();
     use_default_colors();
 
+    /* 🎨 Color schemes */
     int green_shades[] = {22, 28, 34, 40, 46, 82, 118};
+    int purple_shades[] = {55, 56, 57, 92, 93, 98, 99};
+    int red_shades[] = {52, 88, 124, 160, 161, 196, 197};
+    int blue_shades[] = {18, 19, 20, 21, 27, 33, 39};
+
+    int *color_schemes[] = {green_shades, purple_shades, red_shades, blue_shades};
     int shades = sizeof(green_shades)/sizeof(int);
 
-    for (int i = 0; i < shades; i++)
-        init_pair(i+1, green_shades[i], -1);
+    /* Pre-initialize color pairs for multiple generations (pairs 1-84 = 12 generations of 7 pairs each)
+       Using 12 slots instead of 4 provides buffer so existing rain doesn't get color reused while falling */
+    #define MAX_GENERATIONS 12
+    int *gen_color_scheme[MAX_GENERATIONS];
+    for (int g = 0; g < MAX_GENERATIONS; g++) {
+        gen_color_scheme[g] = green_shades;  /* Default to green */
+        for (int i = 0; i < shades; i++)
+            init_pair(g * shades + i + 1, gen_color_scheme[g][i], -1);
+    }
 
     init_pair(50, COLOR_WHITE, -1);
 
@@ -69,10 +82,14 @@ int main() {
     int *head = malloc(sizeof(int) * cols);
     int *len  = malloc(sizeof(int) * cols);
     char **stream = malloc(sizeof(char*) * cols);
+    long *col_reset_time = malloc(sizeof(long) * cols);
+    int *col_generation = malloc(sizeof(int) * cols);
 
     for (int i = 0; i < cols; i++) {
         head[i] = -(rand() % rows);
         len[i]  = 20 + rand() % MAX_TRAIL;
+        col_reset_time[i] = now_us();
+        col_generation[i] = 0;
 
         stream[i] = malloc(rows);
         for (int j = 0; j < rows; j++)
@@ -128,6 +145,9 @@ int main() {
     /* New variables for logic-based speed and reversing */
     int rain_speed = 10;
     int rain_accumulator = 0;
+    long color_change_time = now_us();
+    int current_generation = 0;
+    int last_color_choice = -1;  /* Track last color to avoid repeats */
 
     clear();
 
@@ -148,6 +168,29 @@ int main() {
 
         /* Toggle fog with 'f' key */
         if (ch == 'f') fog_enabled = !fog_enabled;
+
+        /* Change rain color with 'c' key - only if intro is done */
+        if (ch == 'c' && logo_phase >= 3) {
+            /* Increment generation */
+            current_generation++;
+
+            /* Generate new random color scheme (ensure it's different from last) */
+            int color_choice = rand() % 4;
+            while (color_choice == last_color_choice) {
+                color_choice = rand() % 4;
+            }
+            last_color_choice = color_choice;
+            int *new_scheme = color_schemes[color_choice];
+
+            /* Update the color pair set for this generation (12 slots cycling for buffer) */
+            int gen_idx = current_generation % MAX_GENERATIONS;
+            gen_color_scheme[gen_idx] = new_scheme;
+
+            for (int i = 0; i < shades; i++)
+                init_pair(gen_idx * shades + i + 1, gen_color_scheme[gen_idx][i], -1);
+
+            color_change_time = now_us();
+        }
 
         /* FPS balance */
         long current = now_us();
@@ -273,9 +316,12 @@ int main() {
                             int shade = (j * shades) / len[i];
                             if (shade >= shades) shade = shades - 1;
 
-                            attron(COLOR_PAIR(shade + 1));
+                            /* Map generation to color pair set (12 generations cycling) */
+                            int gen_idx = col_generation[i] % MAX_GENERATIONS;
+                            int pair_offset = gen_idx * shades + 1;
+                            attron(COLOR_PAIR(shade + pair_offset));
                             mvaddch(y, i, stream[i][y % rows]);
-                            attroff(COLOR_PAIR(shade + 1));
+                            attroff(COLOR_PAIR(shade + pair_offset));
                         }
                     }
 
@@ -283,9 +329,11 @@ int main() {
                     if (dir == 1 && head[i] - len[i] > rows) {
                         head[i] = -(rand() % rows);
                         len[i]  = 20 + rand() % MAX_TRAIL;
+                        col_generation[i] = current_generation;
                     } else if (dir == -1 && head[i] + 1 < 0) {
                         head[i] = rows + len[i] + (rand() % rows);
                         len[i]  = 20 + rand() % MAX_TRAIL;
+                        col_generation[i] = current_generation;
                     }
 
                     if (rand() % 1000 == 0) {
