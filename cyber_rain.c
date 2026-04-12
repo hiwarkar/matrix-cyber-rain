@@ -14,12 +14,6 @@
 #define MAX_RAIN_SPEED 40
 #define MIN_RAIN_SPEED -40
 
-long now_us() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec * 1000000 + tv.tv_usec;
-}
-
 typedef struct {
     int x, y;
 } Fog;
@@ -28,6 +22,61 @@ typedef struct {
     int x, y, target_y;
     int is_x;
 } Particle;
+
+/* 🔴 GLITCH STATE TRACKING */
+typedef struct {
+    int active;              /* Is this column glitched? */
+    long start_time;         /* When glitch started */
+    int glitch_speed;        /* Speed modifier during glitch */
+    int glitch_color_idx;    /* Color override index */
+    int glitch_brightness;   /* -1 = dim, 0 = normal, 1 = bright */
+    long stop_until;         /* Time when column stops moving until */
+    float intensity;         /* Smooth transition intensity 0.0-1.0 */
+    /* 💥 NEW EFFECTS */
+    int effect_type;         /* 0=garbage, 1=flash, 2=scramble */
+    long flash_time;         /* When the flash occurs */
+    int is_flashing;         /* Currently in flash state? */
+} GlitchState;
+
+long now_us() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000000 + tv.tv_usec;
+}
+
+/* 🔴 Update glitch states with smooth transitions */
+void update_glitches(GlitchState *glitch_state, int cols, int glitch_enabled, long current_time, int glitch_fade_duration) {
+    for (int i = 0; i < cols; i++) {
+        if (glitch_state[i].active) {
+            long elapsed = current_time - glitch_state[i].start_time;
+            float duration_s = (float)glitch_fade_duration / 1000000.0;
+
+            if (glitch_enabled) {
+                /* Fade in to full intensity */
+                if (glitch_state[i].intensity < 1.0) {
+                    glitch_state[i].intensity += 1.0 / (duration_s * 60.0);  /* Smooth fade-in over duration */
+                    if (glitch_state[i].intensity > 1.0) glitch_state[i].intensity = 1.0;
+                }
+                /* 💥 UPDATE FLASH STATE */
+                if (current_time >= glitch_state[i].flash_time) {
+                    glitch_state[i].is_flashing = 1;
+                    /* Schedule next flash */
+                    glitch_state[i].flash_time = current_time + (150000 + rand() % 400000);  /* 0.15-0.55s between flashes */
+                }
+            } else {
+                /* Fade out smoothly */
+                if (glitch_state[i].intensity > 0.0) {
+                    glitch_state[i].intensity -= 1.0 / (duration_s * 60.0);
+                    if (glitch_state[i].intensity < 0.0) {
+                        glitch_state[i].intensity = 0.0;
+                        glitch_state[i].active = 0;  /* Fully deactivate */
+                    }
+                }
+                glitch_state[i].is_flashing = 0;
+            }
+        }
+    }
+}
 
 /* 💚 HMATRIX */
 const char *hmatrix[] = {
@@ -149,6 +198,16 @@ int main() {
     int current_generation = 0;
     int last_color_choice = -1;  /* Track last color to avoid repeats */
 
+    /* 🔴 GLITCH SYSTEM */
+    int glitch_enabled = 0;
+    GlitchState *glitch_state = malloc(sizeof(GlitchState) * cols);
+    for (int i = 0; i < cols; i++) {
+        glitch_state[i].active = 0;
+        glitch_state[i].intensity = 0.0;
+    }
+    long glitch_activation_time = now_us();
+    int glitch_fade_duration = 800000;  /* 0.8 seconds smooth fade */
+
     clear();
 
     while (1) {
@@ -168,6 +227,45 @@ int main() {
 
         /* Toggle fog with 'f' key */
         if (ch == 'f') fog_enabled = !fog_enabled;
+
+        /* Toggle glitch with 'g' key - only if intro is done */
+        if (ch == 'g' && logo_phase >= 3) {
+            glitch_enabled = !glitch_enabled;
+            glitch_activation_time = now_us();
+
+            if (glitch_enabled) {
+                /* 🔴 MASSIVE VIRAL GLITCH ATTACK - 30-50% of screen corrupted */
+                int num_glitches = (cols / 2) + (rand() % (cols / 3));  /* 50-83% of columns get glitched */
+                int glitched_count = 0;
+
+                for (int g = 0; g < num_glitches && glitched_count < cols; g++) {
+                    int col = rand() % cols;
+                    if (!glitch_state[col].active) {
+                        glitch_state[col].active = 1;
+                        glitch_state[col].start_time = now_us();
+                        glitch_state[col].intensity = 0.0;
+                        /* 🔴 MORE EXTREME SPEED VARIATIONS */
+                        glitch_state[col].glitch_speed = (rand() % 5 - 2) * 20;  /* -40, -20, 0, 20, 40 */
+                        glitch_state[col].glitch_color_idx = rand() % 4;
+                        glitch_state[col].glitch_brightness = rand() % 3 - 1;  /* -1, 0, 1 */
+                        /* 🔴 LONGER FREEZE TIMES FOR MORE CHAOS */
+                        glitch_state[col].stop_until = now_us() + (300000 + rand() % 500000);  /* 0.3-0.8s stops */
+                        /* 💥 RANDOM EFFECT ASSIGNMENT */
+                        glitch_state[col].effect_type = rand() % 3;  /* 0=garbage, 1=flash, 2=scramble */
+                        glitch_state[col].flash_time = now_us() + (100000 + rand() % 400000);  /* Random flash timing */
+                        glitch_state[col].is_flashing = 0;
+                        glitched_count++;
+                    }
+                }
+            } else {
+                /* Smoothly deactivate all glitches */
+                for (int i = 0; i < cols; i++) {
+                    if (glitch_state[i].active) {
+                        glitch_state[i].intensity = 1.0;  /* Start fade from full intensity */
+                    }
+                }
+            }
+        }
 
         /* Change rain color with 'c' key - only if intro is done */
         if (ch == 'c' && logo_phase >= 3) {
@@ -284,6 +382,10 @@ int main() {
 
         } else {
 
+            /* 🔴 Update glitch states */
+            long current = now_us();
+            update_glitches(glitch_state, cols, glitch_enabled, current, glitch_fade_duration);
+
             /* 🌧️ MATRIX RAIN & FOG (MODIFIED FOR ACCUMULATOR & REVERSE) */
             rain_accumulator += rain_speed;
 
@@ -293,17 +395,55 @@ int main() {
 
                 for (int i = 0; i < cols; i++) {
 
+                    /* 🔴 Apply glitch speed modifier */
+                    int col_dir = dir;
+                    long current_time = now_us();
+
+                    if (glitch_state[i].intensity > 0.0) {
+                        /* Check if this column is frozen */
+                        if (current_time < glitch_state[i].stop_until) {
+                            col_dir = 0;  /* Don't move */
+                        } else {
+                            /* Apply glitch speed variation */
+                            int speed_mod = (int)(glitch_state[i].glitch_speed * glitch_state[i].intensity);
+                            if (abs(speed_mod) > 0) {
+                                /* Modulate movement by glitch speed */
+                                if (rand() % 10 < abs(speed_mod) / 5) {
+                                    col_dir += (speed_mod > 0) ? 1 : -1;
+                                }
+                            }
+                        }
+                    }
+
                     /* Dynamic erase bounds depending on direction */
-                    int erase_y = (dir == 1) ? (head[i] - len[i]) : (head[i] + 1);
+                    int erase_y = (col_dir == 1) ? (head[i] - len[i]) : (head[i] + 1);
                     if (erase_y >= 0 && erase_y < rows)
                         mvaddch(erase_y, i, ' ');
 
-                    head[i] += dir;
+                    head[i] += col_dir;
 
                     if (head[i] >= 0 && head[i] < rows) {
+                        /* 🔴 Apply glitch effects to head */
                         attron(COLOR_PAIR(50) | A_BOLD);
-                        mvaddch(head[i], i, stream[i][head[i] % rows]);
+
+                        if (glitch_state[i].intensity > 0.0) {
+                            /* Glitch: add brightness variation */
+                            if (glitch_state[i].glitch_brightness > 0) {
+                                attron(A_BOLD);
+                            } else if (glitch_state[i].glitch_brightness < 0) {
+                                attron(A_DIM);
+                            }
+
+                            /* Glitch: garbage characters */
+                            char garbage = (rand() % 2 == 0) ? (33 + rand() % 94) : stream[i][head[i] % rows];
+                            mvaddch(head[i], i, garbage);
+                        } else {
+                            mvaddch(head[i], i, stream[i][head[i] % rows]);
+                        }
+
                         attroff(COLOR_PAIR(50) | A_BOLD);
+                        attroff(A_BOLD);
+                        attroff(A_DIM);
 
                         if (head[i] + 1 < rows)
                             mvaddch(head[i] + 1, i, stream[i][head[i] % rows]);
@@ -319,18 +459,66 @@ int main() {
                             /* Map generation to color pair set (12 generations cycling) */
                             int gen_idx = col_generation[i] % MAX_GENERATIONS;
                             int pair_offset = gen_idx * shades + 1;
-                            attron(COLOR_PAIR(shade + pair_offset));
-                            mvaddch(y, i, stream[i][y % rows]);
-                            attroff(COLOR_PAIR(shade + pair_offset));
+
+                            /* 💥 APPLY DIFFERENT EFFECTS BASED ON TYPE */
+                            int draw_y = y;
+                            int draw_x = i;
+                            char ch_to_draw = stream[i][y % rows];
+
+                            /* 🔴 Apply glitch color override */
+                            if (glitch_state[i].intensity > 0.0) {
+                                int glitch_pair = (glitch_state[i].glitch_color_idx * shades + shade + 1);
+                                attron(COLOR_PAIR(glitch_pair));
+
+                                if (glitch_state[i].glitch_brightness > 0) {
+                                    attron(A_BOLD);
+                                } else if (glitch_state[i].glitch_brightness < 0) {
+                                    attron(A_DIM);
+                                }
+
+                                /* 💥 FLASH EFFECT: Bright white flash */
+                                if (glitch_state[i].is_flashing && glitch_state[i].effect_type == 1) {
+                                    attron(A_BOLD | A_REVERSE);
+                                    ch_to_draw = 33 + rand() % 94;
+                                    glitch_state[i].is_flashing = 0;  /* One frame flash */
+                                }
+                                /* 💥 SCRAMBLE EFFECT: Character position jump */
+                                else if (glitch_state[i].effect_type == 2 && rand() % 100 < 20) {
+                                    draw_y += (rand() % 3 - 1);  /* Jump +1, 0, or -1 */
+                                    if (draw_y < 0 || draw_y >= rows) draw_y = y;
+                                    ch_to_draw = 33 + rand() % 94;
+                                }
+                                /* 💥 GARBAGE EFFECT: Standard garbage characters */
+                                else if (rand() % 100 < (glitch_state[i].intensity * 70)) {
+                                    ch_to_draw = 33 + rand() % 94;
+                                }
+                            } else {
+                                attron(COLOR_PAIR(shade + pair_offset));
+                            }
+
+                            if (draw_y >= 0 && draw_y < rows) {
+                                mvaddch(draw_y, draw_x, ch_to_draw);
+                            }
+
+                            if (glitch_state[i].intensity > 0.0) {
+                                int glitch_pair = (glitch_state[i].glitch_color_idx * shades + shade + 1);
+                                attroff(COLOR_PAIR(glitch_pair));
+                                attroff(A_BOLD);
+                                attroff(A_REVERSE);
+                            } else {
+                                attroff(COLOR_PAIR(shade + pair_offset));
+                            }
+                            attroff(A_BOLD);
+                            attroff(A_DIM);
                         }
                     }
 
                     /* Wrapping behavior bounds adjusted for both directions */
-                    if (dir == 1 && head[i] - len[i] > rows) {
+                    if (col_dir == 1 && head[i] - len[i] > rows) {
                         head[i] = -(rand() % rows);
                         len[i]  = 20 + rand() % MAX_TRAIL;
                         col_generation[i] = current_generation;
-                    } else if (dir == -1 && head[i] + 1 < 0) {
+                    } else if (col_dir == -1 && head[i] + 1 < 0) {
                         head[i] = rows + len[i] + (rand() % rows);
                         len[i]  = 20 + rand() % MAX_TRAIL;
                         col_generation[i] = current_generation;
@@ -369,5 +557,6 @@ int main() {
     }
 
     endwin();
+    free(glitch_state);
     return 0;
 }
