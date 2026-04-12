@@ -1,5 +1,41 @@
 # CYBERRAIN - CHANGELOG
 
+## [Release 1.0.1] - April 12, 2026
+
+### 🔴 Features Added - Glitch Effect System
+
+#### Glitch Effect Feature
+- **Press 'G' key** to toggle MASSIVE viral glitch attack (only works after intro completes)
+- **Viral Spread** - 50-83% of screen columns get corrupted simultaneously (not just 3-7!)
+- **Three Random Glitch Effects** - Each column randomly gets one of:
+  - 💥 **Flash Bursts** - Random bright white/inverted text flashes
+  - 🔀 **Character Scrambling** - Text positions jump vertically for chaos
+  - 🗑️ **Garbage Injection** - 70% random symbol replacement
+- **Extreme Speed Chaos** - Glitched columns move at wildly different speeds (-40 to +40 pixel modifications)
+- **Brightness Distortion** - Text rapidly flickers between bright (bold), normal, and dim states
+- **Extended Freezes** - Affected columns randomly stop moving for 0.3-0.8 seconds
+- **Color Mayhem** - Glitched streams display different color schemes, creating digital chaos
+- **Smooth Transitions** - Glitch effects fade in over ~0.8 seconds when activated
+- **Smooth Recovery** - Press 'G' again to fade out glitch effects with smooth transitions
+- **Full-Screen Meltdown** - Creates overwhelming digital plague effect across entire terminal
+
+#### Technical Implementation
+- Per-column glitch state tracking with intensity values (0.0-1.0)
+- Smooth fade-in/fade-out using frame-based interpolation
+- Massive viral coverage: 50-83% of terminal columns corrupted
+- Three distinct glitch effects assigned randomly per column:
+  - Flash effect: A_REVERSE attribute for bright white inversion
+  - Scramble effect: Random vertical character position offsets (-1, 0, +1)
+  - Garbage effect: 70% noise injection in glitched columns
+- Extreme speed modifiers: -40, -20, 0, +20, +40 pixel variations
+- High garbage character probability: 70% noise injection in glitched columns
+- Extended freeze durations: 0.3-0.8 second stops for unpredictability
+- Flash timing: Randomized 0.15-0.55 second intervals between flashes
+- Zero impact on non-glitched columns - unaffected rain uninterrupted
+- Seamless integration with existing color system
+
+---
+
 ## [Release 1.0.0] - April 12, 2026
 
 ### 🎨 Features Added
@@ -45,6 +81,7 @@
 | `↑` | Decrease rain speed |
 | `↓` | Increase rain speed |
 | `C` | Change rain color |
+| `G` | Toggle glitch effect |
 | `F` | Toggle fog effect |
 | `Q` | Quit application |
 
@@ -60,7 +97,20 @@
 
 ## Release Notes
 
-### This Release Highlights
+### Release 1.0.1 Highlights
+🔴 **MASSIVE Glitch Effect System** - Viral Attack Like Digital Plague
+- 50-83% of screen corrupted simultaneously (full-screen meltdown!)
+- Three random glitch effects per column:
+  - 💥 Flash bursts for sudden bright white text
+  - 🔀 Character scrambling for disorienting jumps
+  - 🗑️ Garbage injection for visual noise
+- Extreme speed variations create chaotic jerky movements
+- Extended freeze intervals for unpredictable behavior
+- Multiple color schemes active simultaneously
+- Smooth fade transitions prevent jarring changes
+- Feels like a real virus attack spreading across the terminal
+
+### Release 1.0.0 Highlights
 ✨ **Color system completely redesigned** for smooth, seamless transitions
 - New rain droplets get the newly selected color instantly
 - Existing falling rain retains its assigned color throughout its lifetime
@@ -73,6 +123,7 @@
 - Beautiful CYBERRAIN ASCII logo with particle animation
 - Fog particle effects for atmospheric enhancement
 - Full terminal resize support
+- Glitch effect system with smooth transitions
 
 ---
 
@@ -99,6 +150,6 @@ gcc -o cyber_rain cyber_rain.c -lncurses -ltinfo
 ---
 
 *Project: CYBERRAIN - A Matrix-Style Terminal Rain Effect*
-*Version: 1.0.0*
+*Version: 1.0.1*
 *Last Updated: April 12, 2026*
 
