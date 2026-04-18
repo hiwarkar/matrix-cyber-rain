@@ -211,7 +211,10 @@ int main() {
     int mix_color_count = 0;  /* How many colors in mix */
     int mix_mode_generation = -1;  /* Track generation when mix mode activated */
     int last_mix_generation = -1;  /* Track last mix generation for smooth disable */
+    int pre_mix_generation = 0;  /* 🎨 Track generation BEFORE mix mode was enabled - for smooth restore */
     int *mix_mode_schemes[3] = {NULL, NULL, NULL};  /* Color schemes for mix */
+    long mix_mode_color_change_time = now_us();  /* Track time for auto color combo changes */
+    int mix_mode_change_interval = 210000000;  /* 3.5 minutes (210 seconds) between color changes */
 
     /* 🔴 GLITCH SYSTEM */
     int glitch_enabled = 0;
@@ -326,6 +329,9 @@ int main() {
             mix_mode_enabled = !mix_mode_enabled;
 
             if (mix_mode_enabled) {
+                /* 🎨 Save current generation as pre-mix state for smooth restoration */
+                pre_mix_generation = current_generation;
+
                 /* 🎨 NEW GENERATION for smooth transition (like color change) */
                 current_generation++;
                 mix_mode_generation = current_generation;
@@ -358,8 +364,54 @@ int main() {
                     mix_mode_schemes[2] = color_schemes[mix_colors[2]];
                 }
             } else {
-                /* Disable mix mode - next generation will use single color */
-                mix_mode_generation = -1;
+                /* 🎨 SMOOTH DISABLE: Preserve last mix generation so existing rain keeps their colors */
+                last_mix_generation = mix_mode_generation;  /* Save current so existing rain stays colored */
+                mix_mode_generation = -1;  /* Mark mix mode as disabled */
+
+                /* 🎨 RESTORE to pre-mix generation for smooth transition */
+                /* New rain will gradually get the pre-mix color as mix generation rain disappears */
+                current_generation = pre_mix_generation;
+            }
+        }
+
+        /* 🎨 AUTO COLOR COMBO CHANGE in mix mode - gradually every 3-4 minutes */
+        if (mix_mode_enabled) {
+            long current_time = now_us();
+            if (current_time - mix_mode_color_change_time > mix_mode_change_interval) {
+                /* Time for new color combo - save old generation so existing rain keeps colors */
+                last_mix_generation = mix_mode_generation;
+                /* Create new generation for NEW rain to pick up new colors */
+                current_generation++;
+                mix_mode_generation = current_generation;
+
+                /* Generate 2-3 contrasting colors for mix */
+                mix_color_count = 2 + rand() % 2;  /* 2 or 3 colors */
+
+                /* Pick first color */
+                mix_colors[0] = rand() % num_colors;
+
+                /* Pick second color (must be different) */
+                mix_colors[1] = rand() % num_colors;
+                while (mix_colors[1] == mix_colors[0]) {
+                    mix_colors[1] = rand() % num_colors;
+                }
+
+                /* Pick third color if mix_color_count == 3 */
+                if (mix_color_count == 3) {
+                    mix_colors[2] = rand() % num_colors;
+                    while (mix_colors[2] == mix_colors[0] || mix_colors[2] == mix_colors[1]) {
+                        mix_colors[2] = rand() % num_colors;
+                    }
+                }
+
+                /* Store the color schemes */
+                mix_mode_schemes[0] = color_schemes[mix_colors[0]];
+                mix_mode_schemes[1] = color_schemes[mix_colors[1]];
+                if (mix_color_count == 3) {
+                    mix_mode_schemes[2] = color_schemes[mix_colors[2]];
+                }
+
+                mix_mode_color_change_time = current_time;
             }
         }
 
@@ -580,19 +632,16 @@ int main() {
                                 else if (rand() % 100 < (glitch_state[i].intensity * 85)) {
                                     ch_to_draw = 33 + rand() % 94;
                                 }
-                            } else if (mix_mode_enabled && col_generation[i] == mix_mode_generation) {
-                                /* 🎨 MIX MODE: Only apply to current generation (smooth transition) */
-                                /* Pre-initialize mix mode color pairs at startup to avoid rendering issues */
+                            } else if ((col_generation[i] == mix_mode_generation || col_generation[i] == last_mix_generation) && (mix_mode_generation >= 0 || last_mix_generation >= 0)) {
+                                /* 🎨 MIX MODE: Apply mix colors to rain from mix mode (current or previous) */
+                                /* Existing rain keeps their colors, only NEW rain gets new colors */
                                 int color_idx = mix_colors[i % mix_color_count];
                                 int *selected_color = color_schemes[color_idx];
-                                /* Use pre-calculated pair index based on mix colors */
                                 int mix_pair_base = 200 + (color_idx * shades) + shade;
                                 if (mix_pair_base < 256) {
-                                    /* Ensure color pair is initialized */
                                     init_pair(mix_pair_base, selected_color[shade], -1);
                                     attron(COLOR_PAIR(mix_pair_base));
                                 } else {
-                                    /* Fallback if pair index too high */
                                     attron(COLOR_PAIR(shade + pair_offset));
                                 }
                             } else {
@@ -622,7 +671,7 @@ int main() {
                                 }
                                 attroff(A_BOLD);
                                 attroff(A_REVERSE);
-                            } else if (mix_mode_enabled && col_generation[i] == mix_mode_generation) {
+                            } else if ((col_generation[i] == mix_mode_generation || col_generation[i] == last_mix_generation) && (mix_mode_generation >= 0 || last_mix_generation >= 0)) {
                                 int color_idx = mix_colors[i % mix_color_count];
                                 int mix_pair_base = 200 + (color_idx * shades) + shade;
                                 if (mix_pair_base < 256) {
