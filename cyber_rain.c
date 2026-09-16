@@ -51,6 +51,7 @@ void update_glitches(GlitchState *glitch_state, int cols, int glitch_enabled, lo
     for (int i = 0; i < cols; i++) {
         if (glitch_state[i].active) {
             long elapsed = current_time - glitch_state[i].start_time;
+            (void)elapsed; /* silence unused-variable warning; kept for future timing logic */
             float duration_s = (float)glitch_fade_duration / 1000000.0;
 
             if (glitch_enabled) {
@@ -791,6 +792,11 @@ int main() {
             nanosleep(&ts, NULL);
         }
     }
+
+        /* Silence warnings for variables intentionally kept for future features */
+        (void)mix_mode_schemes;
+        (void)color_change_time;
+        (void)glitch_activation_time;
 
     endwin();
     free(glitch_state);
