@@ -1,4 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
 #include <ncurses.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
@@ -49,6 +51,7 @@ void update_glitches(GlitchState *glitch_state, int cols, int glitch_enabled, lo
     for (int i = 0; i < cols; i++) {
         if (glitch_state[i].active) {
             long elapsed = current_time - glitch_state[i].start_time;
+            (void)elapsed; /* silence unused-variable warning; kept for future timing logic */
             float duration_s = (float)glitch_fade_duration / 1000000.0;
 
             if (glitch_enabled) {
@@ -107,8 +110,15 @@ int main() {
     int purple_shades[] = {55, 56, 57, 92, 93, 98, 99};
     int red_shades[] = {52, 88, 124, 160, 161, 196, 197};
     int blue_shades[] = {18, 19, 20, 21, 27, 33, 39};
+    int yellow_shades[] = {58, 100, 136, 142, 148, 184, 226};  /* 🟡 GOLD/YELLOW */
+    int orange_shades[] = {94, 130, 166, 172, 208, 214, 220};  /* 🟠 ORANGE */
+    int cyan_shades[] = {23, 29, 35, 41, 50, 87, 123};         /* 🔵 CYAN */
+    int magenta_shades[] = {53, 89, 125, 127, 163, 165, 201};  /* 🟣 MAGENTA */
+    int pink_shades[] = {175, 176, 177, 210, 211, 212, 217};   /* 🌸 CHERRY BLOSSOM PINK */
 
-    int *color_schemes[] = {green_shades, purple_shades, red_shades, blue_shades};
+    int *color_schemes[] = {green_shades, purple_shades, red_shades, blue_shades,
+                            yellow_shades, orange_shades, cyan_shades, magenta_shades, pink_shades};
+    int num_colors = 9;  /* Total number of color schemes */
     int shades = sizeof(green_shades)/sizeof(int);
 
     /* Pre-initialize color pairs for multiple generations (pairs 1-84 = 12 generations of 7 pairs each)
@@ -124,6 +134,15 @@ int main() {
     init_pair(50, COLOR_WHITE, -1);
 
     getmaxyx(stdscr, rows, cols);
+
+    /* Debug: log initial terminal size to help diagnose silent exits */
+    {
+        FILE *dbg = fopen("/tmp/cyber_rain.log", "a");
+        if (dbg) {
+            fprintf(dbg, "START pid=%d rows=%d cols=%d\n", (int)getpid(), rows, cols);
+            fclose(dbg);
+        }
+    }
 
     srand(time(NULL));
 
@@ -198,6 +217,17 @@ int main() {
     int current_generation = 0;
     int last_color_choice = -1;  /* Track last color to avoid repeats */
 
+    /* 🎨 MIX MODE SYSTEM */
+    int mix_mode_enabled = 0;
+    int mix_colors[3] = {0, 0, 0};  /* Store 2-3 colors for mix */
+    int mix_color_count = 0;  /* How many colors in mix */
+    int mix_mode_generation = -1;  /* Track generation when mix mode activated */
+    int last_mix_generation = -1;  /* Track last mix generation for smooth disable */
+    int pre_mix_generation = 0;  /* 🎨 Track generation BEFORE mix mode was enabled - for smooth restore */
+    int *mix_mode_schemes[3] = {NULL, NULL, NULL};  /* Color schemes for mix */
+    long mix_mode_color_change_time = now_us();  /* Track time for auto color combo changes */
+    int mix_mode_change_interval = 210000000;  /* 3.5 minutes (210 seconds) between color changes */
+
     /* 🔴 GLITCH SYSTEM */
     int glitch_enabled = 0;
     GlitchState *glitch_state = malloc(sizeof(GlitchState) * cols);
@@ -237,6 +267,10 @@ int main() {
                 /* 🔴 MASSIVE VIRAL GLITCH ATTACK - 30-50% of screen corrupted */
                 int num_glitches = (cols / 2) + (rand() % (cols / 3));  /* 50-83% of columns get glitched */
                 int glitched_count = 0;
+                int red_lines_created = 0;
+                int golden_lines_created = 0;
+                int max_red_lines = 8 + rand() % 5;  /* 8-12 red lines always visible */
+                int max_golden_lines = 5 + rand() % 4;  /* 5-8 golden lines for contrast */
 
                 for (int g = 0; g < num_glitches && glitched_count < cols; g++) {
                     int col = rand() % cols;
@@ -246,7 +280,18 @@ int main() {
                         glitch_state[col].intensity = 0.0;
                         /* 🔴 MORE EXTREME SPEED VARIATIONS */
                         glitch_state[col].glitch_speed = (rand() % 5 - 2) * 20;  /* -40, -20, 0, 20, 40 */
-                        glitch_state[col].glitch_color_idx = rand() % 4;
+
+                        /* 🔴 ENSURE SOME COLUMNS ARE ALWAYS RED OR 🟡 GOLDEN */
+                        if (red_lines_created < max_red_lines) {
+                            glitch_state[col].glitch_color_idx = 2;  /* 2 = red_shades */
+                            red_lines_created++;
+                        } else if (golden_lines_created < max_golden_lines) {
+                            glitch_state[col].glitch_color_idx = 4;  /* 4 = yellow_shades (golden) */
+                            golden_lines_created++;
+                        } else {
+                            glitch_state[col].glitch_color_idx = rand() % num_colors;
+                        }
+
                         glitch_state[col].glitch_brightness = rand() % 3 - 1;  /* -1, 0, 1 */
                         /* 🔴 LONGER FREEZE TIMES FOR MORE CHAOS */
                         glitch_state[col].stop_until = now_us() + (300000 + rand() % 500000);  /* 0.3-0.8s stops */
@@ -273,9 +318,9 @@ int main() {
             current_generation++;
 
             /* Generate new random color scheme (ensure it's different from last) */
-            int color_choice = rand() % 4;
+            int color_choice = rand() % num_colors;
             while (color_choice == last_color_choice) {
-                color_choice = rand() % 4;
+                color_choice = rand() % num_colors;
             }
             last_color_choice = color_choice;
             int *new_scheme = color_schemes[color_choice];
@@ -288,6 +333,98 @@ int main() {
                 init_pair(gen_idx * shades + i + 1, gen_color_scheme[gen_idx][i], -1);
 
             color_change_time = now_us();
+            mix_mode_enabled = 0;  /* Disable mix mode when changing single color */
+        }
+
+        /* 🎨 MIX MODE: Press 'm' to enable/disable color mixing - SMOOTH TRANSITION */
+        if (ch == 'm' && logo_phase >= 3) {
+            mix_mode_enabled = !mix_mode_enabled;
+
+            if (mix_mode_enabled) {
+                /* 🎨 Save current generation as pre-mix state for smooth restoration */
+                pre_mix_generation = current_generation;
+
+                /* 🎨 NEW GENERATION for smooth transition (like color change) */
+                current_generation++;
+                mix_mode_generation = current_generation;
+
+                /* Generate 2-3 contrasting colors for mix */
+                mix_color_count = 2 + rand() % 2;  /* 2 or 3 colors */
+
+                /* Pick colors and store their schemes */
+                /* Pick first color */
+                mix_colors[0] = rand() % num_colors;
+
+                /* Pick second color (must be different) */
+                mix_colors[1] = rand() % num_colors;
+                while (mix_colors[1] == mix_colors[0]) {
+                    mix_colors[1] = rand() % num_colors;
+                }
+
+                /* Pick third color if mix_color_count == 3 (must be different from both) */
+                if (mix_color_count == 3) {
+                    mix_colors[2] = rand() % num_colors;
+                    while (mix_colors[2] == mix_colors[0] || mix_colors[2] == mix_colors[1]) {
+                        mix_colors[2] = rand() % num_colors;
+                    }
+                }
+
+                /* Store the color schemes for this generation */
+                mix_mode_schemes[0] = color_schemes[mix_colors[0]];
+                mix_mode_schemes[1] = color_schemes[mix_colors[1]];
+                if (mix_color_count == 3) {
+                    mix_mode_schemes[2] = color_schemes[mix_colors[2]];
+                }
+            } else {
+                /* 🎨 SMOOTH DISABLE: Preserve last mix generation so existing rain keeps their colors */
+                last_mix_generation = mix_mode_generation;  /* Save current so existing rain stays colored */
+                mix_mode_generation = -1;  /* Mark mix mode as disabled */
+
+                /* 🎨 RESTORE to pre-mix generation for smooth transition */
+                /* New rain will gradually get the pre-mix color as mix generation rain disappears */
+                current_generation = pre_mix_generation;
+            }
+        }
+
+        /* 🎨 AUTO COLOR COMBO CHANGE in mix mode - gradually every 3-4 minutes */
+        if (mix_mode_enabled) {
+            long current_time = now_us();
+            if (current_time - mix_mode_color_change_time > mix_mode_change_interval) {
+                /* Time for new color combo - save old generation so existing rain keeps colors */
+                last_mix_generation = mix_mode_generation;
+                /* Create new generation for NEW rain to pick up new colors */
+                current_generation++;
+                mix_mode_generation = current_generation;
+
+                /* Generate 2-3 contrasting colors for mix */
+                mix_color_count = 2 + rand() % 2;  /* 2 or 3 colors */
+
+                /* Pick first color */
+                mix_colors[0] = rand() % num_colors;
+
+                /* Pick second color (must be different) */
+                mix_colors[1] = rand() % num_colors;
+                while (mix_colors[1] == mix_colors[0]) {
+                    mix_colors[1] = rand() % num_colors;
+                }
+
+                /* Pick third color if mix_color_count == 3 */
+                if (mix_color_count == 3) {
+                    mix_colors[2] = rand() % num_colors;
+                    while (mix_colors[2] == mix_colors[0] || mix_colors[2] == mix_colors[1]) {
+                        mix_colors[2] = rand() % num_colors;
+                    }
+                }
+
+                /* Store the color schemes */
+                mix_mode_schemes[0] = color_schemes[mix_colors[0]];
+                mix_mode_schemes[1] = color_schemes[mix_colors[1]];
+                if (mix_color_count == 3) {
+                    mix_mode_schemes[2] = color_schemes[mix_colors[2]];
+                }
+
+                mix_mode_color_change_time = current_time;
+            }
         }
 
         /* FPS balance */
@@ -302,34 +439,80 @@ int main() {
         if (delay > MAX_DELAY) delay = MAX_DELAY;
 
         /* ---------------------------------------------------- */
-        /* 🛠️ SCREEN RESIZE LOGIC ADDED HERE                    */
-        /* ---------------------------------------------------- */
+        /* 🛠️ Robust SCREEN RESIZE HANDLING                      */
+        /* - Safely grow/shrink per-column arrays
+         * - Resize per-column buffers and initialize new space
+         * - Update logo/fog positions to remain in-bounds
+         */
         int new_rows, new_cols;
         getmaxyx(stdscr, new_rows, new_cols);
 
         if (new_cols != cols) {
-            head = realloc(head, sizeof(int) * new_cols);
-            len  = realloc(len,  sizeof(int) * new_cols);
-            stream = realloc(stream, sizeof(char*) * new_cols);
+            int old_cols = cols;
 
-            for (int i = cols; i < new_cols; i++) {
-                stream[i] = malloc(new_rows);
-                head[i] = -(rand() % new_rows);
-                len[i]  = 20 + rand() % MAX_TRAIL;
+            if (new_cols > old_cols) {
+                head = realloc(head, sizeof(int) * new_cols);
+                len  = realloc(len,  sizeof(int) * new_cols);
+                stream = realloc(stream, sizeof(char*) * new_cols);
+                col_reset_time = realloc(col_reset_time, sizeof(long) * new_cols);
+                col_generation = realloc(col_generation, sizeof(int) * new_cols);
+                glitch_state = realloc(glitch_state, sizeof(GlitchState) * new_cols);
 
-                for (int j = 0; j < new_rows; j++)
-                    stream[i][j] = 33 + rand() % 94;
+                for (int i = old_cols; i < new_cols; i++) {
+                    stream[i] = malloc(new_rows * sizeof(char));
+                    head[i] = -(rand() % (new_rows > 0 ? new_rows : 1));
+                    len[i]  = 20 + rand() % MAX_TRAIL;
+                    col_reset_time[i] = now_us();
+                    col_generation[i] = current_generation;
+                    glitch_state[i].active = 0;
+                    glitch_state[i].intensity = 0.0;
+
+                    for (int j = 0; j < new_rows; j++)
+                        stream[i][j] = 33 + rand() % 94;
+                }
+            } else {
+                /* Shrinking: free buffers that will be removed first */
+                for (int i = new_cols; i < old_cols; i++) {
+                    free(stream[i]);
+                }
+
+                head = realloc(head, sizeof(int) * new_cols);
+                len  = realloc(len,  sizeof(int) * new_cols);
+                stream = realloc(stream, sizeof(char*) * new_cols);
+                col_reset_time = realloc(col_reset_time, sizeof(long) * new_cols);
+                col_generation = realloc(col_generation, sizeof(int) * new_cols);
+                glitch_state = realloc(glitch_state, sizeof(GlitchState) * new_cols);
             }
+
             cols = new_cols;
+            /* Re-center logo after width change */
+            logo_x = cols/2 - logo_width/2;
         }
 
         if (new_rows != rows) {
             for (int i = 0; i < cols; i++) {
-                stream[i] = realloc(stream[i], new_rows);
+                stream[i] = realloc(stream[i], new_rows * sizeof(char));
 
-                for (int j = rows; j < new_rows; j++)
-                    stream[i][j] = 33 + rand() % 94;
+                if (new_rows > rows) {
+                    for (int j = rows; j < new_rows; j++)
+                        stream[i][j] = 33 + rand() % 94;
+                } else {
+                    /* If rows decreased, ensure head stays in-bounds */
+                    if (head[i] >= new_rows || head[i] < -new_rows)
+                        head[i] = -(rand() % (new_rows > 0 ? new_rows : 1));
+                }
             }
+
+            /* Keep fog/particles within bounds */
+            for (int i = 0; i < FOG_PARTICLES; i++) {
+                if (fog[i].x >= cols) fog[i].x = rand() % (cols > 0 ? cols : 1);
+                if (fog[i].y >= new_rows) fog[i].y = new_rows - 1;
+                if (fog[i].y < 0) fog[i].y = 0;
+            }
+
+            /* Recompute logo Y after height change */
+            logo_y = rows/2 - LOGO_H/2;
+
             rows = new_rows;
         }
         /* ---------------------------------------------------- */
@@ -467,8 +650,22 @@ int main() {
 
                             /* 🔴 Apply glitch color override */
                             if (glitch_state[i].intensity > 0.0) {
-                                int glitch_pair = (glitch_state[i].glitch_color_idx * shades + shade + 1);
-                                attron(COLOR_PAIR(glitch_pair));
+                                /* 🔴 RED ALERT: Use red_shades directly for red columns */
+                                if (glitch_state[i].glitch_color_idx == 2) {
+                                    int red_color = red_shades[shade];
+                                    init_pair(100 + shade, red_color, -1);
+                                    attron(COLOR_PAIR(100 + shade) | A_BOLD);
+                                }
+                                /* 🟡 GOLDEN ALERT: Use yellow_shades directly for golden columns */
+                                else if (glitch_state[i].glitch_color_idx == 4) {
+                                    int gold_color = yellow_shades[shade];
+                                    init_pair(120 + shade, gold_color, -1);
+                                    attron(COLOR_PAIR(120 + shade) | A_BOLD);
+                                }
+                                else {
+                                    int glitch_pair = (glitch_state[i].glitch_color_idx * shades + shade + 1);
+                                    attron(COLOR_PAIR(glitch_pair));
+                                }
 
                                 if (glitch_state[i].glitch_brightness > 0) {
                                     attron(A_BOLD);
@@ -476,35 +673,70 @@ int main() {
                                     attron(A_DIM);
                                 }
 
-                                /* 💥 FLASH EFFECT: Bright white flash */
+                                /* 💥 FLASH EFFECT: Bright white flash with intensity */
                                 if (glitch_state[i].is_flashing && glitch_state[i].effect_type == 1) {
                                     attron(A_BOLD | A_REVERSE);
-                                    ch_to_draw = 33 + rand() % 94;
-                                    glitch_state[i].is_flashing = 0;  /* One frame flash */
+                                    ch_to_draw = (rand() % 2 == 0) ? '@' : '#';
+                                    glitch_state[i].is_flashing = 0;
                                 }
-                                /* 💥 SCRAMBLE EFFECT: Character position jump */
-                                else if (glitch_state[i].effect_type == 2 && rand() % 100 < 20) {
-                                    draw_y += (rand() % 3 - 1);  /* Jump +1, 0, or -1 */
+                                /* 💥 SCRAMBLE EFFECT: More aggressive character position jump */
+                                else if (glitch_state[i].effect_type == 2 && rand() % 100 < 35) {
+                                    int jump = (rand() % 5 - 2);  /* Jump -2, -1, 0, 1, 2 */
+                                    draw_y += jump;
                                     if (draw_y < 0 || draw_y >= rows) draw_y = y;
+                                    ch_to_draw = (rand() % 2 == 0) ? (33 + rand() % 94) : stream[i][draw_y % rows];
+                                }
+                                /* 💥 GARBAGE EFFECT: More intense random noise */
+                                else if (rand() % 100 < (glitch_state[i].intensity * 85)) {
                                     ch_to_draw = 33 + rand() % 94;
                                 }
-                                /* 💥 GARBAGE EFFECT: Standard garbage characters */
-                                else if (rand() % 100 < (glitch_state[i].intensity * 70)) {
-                                    ch_to_draw = 33 + rand() % 94;
+                            } else if ((col_generation[i] == mix_mode_generation || col_generation[i] == last_mix_generation) && (mix_mode_generation >= 0 || last_mix_generation >= 0)) {
+                                /* 🎨 MIX MODE: Apply mix colors to rain from mix mode (current or previous) */
+                                /* Existing rain keeps their colors, only NEW rain gets new colors */
+                                int color_idx = mix_colors[i % mix_color_count];
+                                int *selected_color = color_schemes[color_idx];
+                                int mix_pair_base = 200 + (color_idx * shades) + shade;
+                                if (mix_pair_base < 256) {
+                                    init_pair(mix_pair_base, selected_color[shade], -1);
+                                    attron(COLOR_PAIR(mix_pair_base));
+                                } else {
+                                    attron(COLOR_PAIR(shade + pair_offset));
                                 }
                             } else {
                                 attron(COLOR_PAIR(shade + pair_offset));
                             }
 
                             if (draw_y >= 0 && draw_y < rows) {
-                                mvaddch(draw_y, draw_x, ch_to_draw);
+                                 mvaddch(draw_y, draw_x, ch_to_draw);
                             }
 
                             if (glitch_state[i].intensity > 0.0) {
-                                int glitch_pair = (glitch_state[i].glitch_color_idx * shades + shade + 1);
-                                attroff(COLOR_PAIR(glitch_pair));
+                                /* 🔴 RED ALERT: Force red color for red columns */
+                                if (glitch_state[i].glitch_color_idx == 2) {
+                                    int red_color = red_shades[shade];
+                                    init_pair(100 + shade, red_color, -1);
+                                    attroff(COLOR_PAIR(100 + shade));
+                                }
+                                /* 🟡 GOLDEN ALERT: Force golden color for golden columns */
+                                else if (glitch_state[i].glitch_color_idx == 4) {
+                                    int gold_color = yellow_shades[shade];
+                                    init_pair(120 + shade, gold_color, -1);
+                                    attroff(COLOR_PAIR(120 + shade));
+                                }
+                                else {
+                                    int glitch_pair = (glitch_state[i].glitch_color_idx * shades + shade + 1);
+                                    attroff(COLOR_PAIR(glitch_pair));
+                                }
                                 attroff(A_BOLD);
                                 attroff(A_REVERSE);
+                            } else if ((col_generation[i] == mix_mode_generation || col_generation[i] == last_mix_generation) && (mix_mode_generation >= 0 || last_mix_generation >= 0)) {
+                                int color_idx = mix_colors[i % mix_color_count];
+                                int mix_pair_base = 200 + (color_idx * shades) + shade;
+                                if (mix_pair_base < 256) {
+                                    attroff(COLOR_PAIR(mix_pair_base));
+                                } else {
+                                    attroff(COLOR_PAIR(shade + pair_offset));
+                                }
                             } else {
                                 attroff(COLOR_PAIR(shade + pair_offset));
                             }
@@ -553,8 +785,18 @@ int main() {
 
         wnoutrefresh(stdscr);
         doupdate();
-        usleep(delay);
+        {
+            struct timespec ts;
+            ts.tv_sec = delay / 1000000;
+            ts.tv_nsec = (delay % 1000000) * 1000;
+            nanosleep(&ts, NULL);
+        }
     }
+
+        /* Silence warnings for variables intentionally kept for future features */
+        (void)mix_mode_schemes;
+        (void)color_change_time;
+        (void)glitch_activation_time;
 
     endwin();
     free(glitch_state);
