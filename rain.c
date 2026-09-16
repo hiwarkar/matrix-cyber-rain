@@ -2,6 +2,7 @@
 #include <ncurses.h>
 #include "rain.h"
 #include "colors.h"
+#include "lang.h"
 
 RainSystem *rain_init(int cols, int rows) {
     RainSystem *rain = malloc(sizeof(RainSystem));
@@ -20,7 +21,7 @@ RainSystem *rain_init(int cols, int rows) {
 
         rain->stream[i] = malloc(rows);
         for (int j = 0; j < rows; j++)
-            rain->stream[i][j] = 33 + rand() % 94;
+            rain->stream[i][j] = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
     }
 
     return rain;
@@ -41,7 +42,7 @@ void rain_handle_resize(RainSystem *rain, int old_cols, int old_rows,
             rain->col_generation[i] = 0;
 
             for (int j = 0; j < new_rows; j++)
-                rain->stream[i][j] = 33 + rand() % 94;
+                rain->stream[i][j] = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
         }
     }
 
@@ -50,7 +51,7 @@ void rain_handle_resize(RainSystem *rain, int old_cols, int old_rows,
             rain->stream[i] = realloc(rain->stream[i], new_rows);
 
             for (int j = old_rows; j < new_rows; j++)
-                rain->stream[i][j] = 33 + rand() % 94;
+                rain->stream[i][j] = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
         }
     }
 }
@@ -92,7 +93,7 @@ void rain_update(RainSystem *rain, int cols, int rows, int shades, int *gen_sche
                 } else if (glitch_state[i].glitch_brightness < 0) {
                     attron(A_DIM);
                 }
-                char garbage = (rand() % 2 == 0) ? (33 + rand() % 94) : rain->stream[i][rain->head[i] % rows];
+                char garbage = (rand() % 2 == 0) ? (lang_enabled() ? lang_get_char() : (33 + rand() % 94)) : rain->stream[i][rain->head[i] % rows];
                 mvaddch(rain->head[i], i, garbage);
             } else {
                 mvaddch(rain->head[i], i, rain->stream[i][rain->head[i] % rows]);
@@ -149,9 +150,9 @@ void rain_update(RainSystem *rain, int cols, int rows, int shades, int *gen_sche
                         int jump = (rand() % 5 - 2);
                         draw_y += jump;
                         if (draw_y < 0 || draw_y >= rows) draw_y = y;
-                        ch_to_draw = (rand() % 2 == 0) ? (33 + rand() % 94) : rain->stream[i][draw_y % rows];
+                        ch_to_draw = (rand() % 2 == 0) ? (lang_enabled() ? lang_get_char() : (33 + rand() % 94)) : rain->stream[i][draw_y % rows];
                     } else if (rand() % 100 < (glitch_state[i].intensity * 85)) {
-                        ch_to_draw = 33 + rand() % 94;
+                        ch_to_draw = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
                     }
                 } else if ((rain->col_generation[i] == mix_mode->generation || 
                            rain->col_generation[i] == last_mix_generation) && 
@@ -212,7 +213,7 @@ void rain_update(RainSystem *rain, int cols, int rows, int shades, int *gen_sche
 
         if (rand() % 1000 == 0) {
             int pos = rand() % rows;
-            rain->stream[i][pos] = 33 + rand() % 94;
+            rain->stream[i][pos] = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
         }
     }
 }

@@ -6,6 +6,8 @@
 #include <time.h>
 #include <sys/time.h>
 #include <string.h>
+#include "train.h"
+#include "lang.h"
 
 #define MAX_TRAIL 40
 #define MIN_DELAY 10000
@@ -145,6 +147,9 @@ int main() {
     }
 
     srand(time(NULL));
+    /* initialize new effects/modules */
+    train_init(cols, rows);
+    lang_init();
 
     /* 🌧️ RAIN (UNCHANGED) */
     int *head = malloc(sizeof(int) * cols);
@@ -159,9 +164,9 @@ int main() {
         col_reset_time[i] = now_us();
         col_generation[i] = 0;
 
-        stream[i] = malloc(rows);
+        stream[i] = malloc(rows * sizeof(char));
         for (int j = 0; j < rows; j++)
-            stream[i][j] = 33 + rand() % 94;
+            stream[i][j] = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
     }
 
     /* 🌫️ fog */
@@ -257,6 +262,16 @@ int main() {
 
         /* Toggle fog with 'f' key */
         if (ch == 'f') fog_enabled = !fog_enabled;
+
+        /* Toggle train with 't' key */
+        if (ch == 't' && logo_phase >= 3) {
+            train_toggle();
+        }
+
+        /* Toggle language mode with 'l' key (new text will be in Chinese when enabled) */
+        if (ch == 'l') {
+            lang_toggle();
+        }
 
         /* Toggle glitch with 'g' key - only if intro is done */
         if (ch == 'g' && logo_phase >= 3) {
@@ -468,7 +483,7 @@ int main() {
                     glitch_state[i].intensity = 0.0;
 
                     for (int j = 0; j < new_rows; j++)
-                        stream[i][j] = 33 + rand() % 94;
+                        stream[i][j] = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
                 }
             } else {
                 /* Shrinking: free buffers that will be removed first */
@@ -495,7 +510,7 @@ int main() {
 
                 if (new_rows > rows) {
                     for (int j = rows; j < new_rows; j++)
-                        stream[i][j] = 33 + rand() % 94;
+                        stream[i][j] = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
                 } else {
                     /* If rows decreased, ensure head stays in-bounds */
                     if (head[i] >= new_rows || head[i] < -new_rows)
@@ -618,7 +633,7 @@ int main() {
                             }
 
                             /* Glitch: garbage characters */
-                            char garbage = (rand() % 2 == 0) ? (33 + rand() % 94) : stream[i][head[i] % rows];
+                                    char garbage = (rand() % 2 == 0) ? (lang_enabled() ? lang_get_char() : (33 + rand() % 94)) : stream[i][head[i] % rows];
                             mvaddch(head[i], i, garbage);
                         } else {
                             mvaddch(head[i], i, stream[i][head[i] % rows]);
@@ -684,11 +699,11 @@ int main() {
                                     int jump = (rand() % 5 - 2);  /* Jump -2, -1, 0, 1, 2 */
                                     draw_y += jump;
                                     if (draw_y < 0 || draw_y >= rows) draw_y = y;
-                                    ch_to_draw = (rand() % 2 == 0) ? (33 + rand() % 94) : stream[i][draw_y % rows];
+                                    ch_to_draw = (rand() % 2 == 0) ? (lang_enabled() ? lang_get_char() : (33 + rand() % 94)) : stream[i][draw_y % rows];
                                 }
                                 /* 💥 GARBAGE EFFECT: More intense random noise */
                                 else if (rand() % 100 < (glitch_state[i].intensity * 85)) {
-                                    ch_to_draw = 33 + rand() % 94;
+                                    ch_to_draw = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
                                 }
                             } else if ((col_generation[i] == mix_mode_generation || col_generation[i] == last_mix_generation) && (mix_mode_generation >= 0 || last_mix_generation >= 0)) {
                                 /* 🎨 MIX MODE: Apply mix colors to rain from mix mode (current or previous) */
@@ -756,10 +771,10 @@ int main() {
                         col_generation[i] = current_generation;
                     }
 
-                    if (rand() % 1000 == 0) {
-                        int pos = rand() % rows;
-                        stream[i][pos] = 33 + rand() % 94;
-                    }
+                        if (rand() % 1000 == 0) {
+                            int pos = rand() % rows;
+                            stream[i][pos] = (lang_enabled() ? lang_get_char() : (33 + rand() % 94));
+                        }
                 }
 
                 /* 🌫️ fog */
@@ -782,6 +797,11 @@ int main() {
                 }
             }
         }
+
+        /* Draw train blocks (if enabled) */
+        train_update_and_draw(cols, rows, shades, gen_color_scheme, num_colors,
+                      mix_mode_enabled, mix_colors, mix_color_count,
+                      mix_mode_generation, last_mix_generation);
 
         wnoutrefresh(stdscr);
         doupdate();
