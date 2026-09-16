@@ -196,6 +196,12 @@
 **Build Command:**
 ```bash
 gcc -o cyber_rain cyber_rain.c -lncurses -ltinfo
+
+if not worked then
+
+export TERM=xterm-256color
+gcc -std=c99 -O2 -Wall cyber_rain.c -o cyber_rain -lncurses -ltinfo
+./cyber_rain
 ```
 
 **Run Command:**

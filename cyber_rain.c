@@ -1,4 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
 #include <ncurses.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
@@ -49,6 +51,7 @@ void update_glitches(GlitchState *glitch_state, int cols, int glitch_enabled, lo
     for (int i = 0; i < cols; i++) {
         if (glitch_state[i].active) {
             long elapsed = current_time - glitch_state[i].start_time;
+            (void)elapsed; /* silence unused-variable warning; kept for future timing logic */
             float duration_s = (float)glitch_fade_duration / 1000000.0;
 
             if (glitch_enabled) {
@@ -131,6 +134,15 @@ int main() {
     init_pair(50, COLOR_WHITE, -1);
 
     getmaxyx(stdscr, rows, cols);
+
+    /* Debug: log initial terminal size to help diagnose silent exits */
+    {
+        FILE *dbg = fopen("/tmp/cyber_rain.log", "a");
+        if (dbg) {
+            fprintf(dbg, "START pid=%d rows=%d cols=%d\n", (int)getpid(), rows, cols);
+            fclose(dbg);
+        }
+    }
 
     srand(time(NULL));
 
@@ -427,34 +439,80 @@ int main() {
         if (delay > MAX_DELAY) delay = MAX_DELAY;
 
         /* ---------------------------------------------------- */
-        /* 🛠️ SCREEN RESIZE LOGIC ADDED HERE                    */
-        /* ---------------------------------------------------- */
+        /* 🛠️ Robust SCREEN RESIZE HANDLING                      */
+        /* - Safely grow/shrink per-column arrays
+         * - Resize per-column buffers and initialize new space
+         * - Update logo/fog positions to remain in-bounds
+         */
         int new_rows, new_cols;
         getmaxyx(stdscr, new_rows, new_cols);
 
         if (new_cols != cols) {
-            head = realloc(head, sizeof(int) * new_cols);
-            len  = realloc(len,  sizeof(int) * new_cols);
-            stream = realloc(stream, sizeof(char*) * new_cols);
+            int old_cols = cols;
 
-            for (int i = cols; i < new_cols; i++) {
-                stream[i] = malloc(new_rows);
-                head[i] = -(rand() % new_rows);
-                len[i]  = 20 + rand() % MAX_TRAIL;
+            if (new_cols > old_cols) {
+                head = realloc(head, sizeof(int) * new_cols);
+                len  = realloc(len,  sizeof(int) * new_cols);
+                stream = realloc(stream, sizeof(char*) * new_cols);
+                col_reset_time = realloc(col_reset_time, sizeof(long) * new_cols);
+                col_generation = realloc(col_generation, sizeof(int) * new_cols);
+                glitch_state = realloc(glitch_state, sizeof(GlitchState) * new_cols);
 
-                for (int j = 0; j < new_rows; j++)
-                    stream[i][j] = 33 + rand() % 94;
+                for (int i = old_cols; i < new_cols; i++) {
+                    stream[i] = malloc(new_rows * sizeof(char));
+                    head[i] = -(rand() % (new_rows > 0 ? new_rows : 1));
+                    len[i]  = 20 + rand() % MAX_TRAIL;
+                    col_reset_time[i] = now_us();
+                    col_generation[i] = current_generation;
+                    glitch_state[i].active = 0;
+                    glitch_state[i].intensity = 0.0;
+
+                    for (int j = 0; j < new_rows; j++)
+                        stream[i][j] = 33 + rand() % 94;
+                }
+            } else {
+                /* Shrinking: free buffers that will be removed first */
+                for (int i = new_cols; i < old_cols; i++) {
+                    free(stream[i]);
+                }
+
+                head = realloc(head, sizeof(int) * new_cols);
+                len  = realloc(len,  sizeof(int) * new_cols);
+                stream = realloc(stream, sizeof(char*) * new_cols);
+                col_reset_time = realloc(col_reset_time, sizeof(long) * new_cols);
+                col_generation = realloc(col_generation, sizeof(int) * new_cols);
+                glitch_state = realloc(glitch_state, sizeof(GlitchState) * new_cols);
             }
+
             cols = new_cols;
+            /* Re-center logo after width change */
+            logo_x = cols/2 - logo_width/2;
         }
 
         if (new_rows != rows) {
             for (int i = 0; i < cols; i++) {
-                stream[i] = realloc(stream[i], new_rows);
+                stream[i] = realloc(stream[i], new_rows * sizeof(char));
 
-                for (int j = rows; j < new_rows; j++)
-                    stream[i][j] = 33 + rand() % 94;
+                if (new_rows > rows) {
+                    for (int j = rows; j < new_rows; j++)
+                        stream[i][j] = 33 + rand() % 94;
+                } else {
+                    /* If rows decreased, ensure head stays in-bounds */
+                    if (head[i] >= new_rows || head[i] < -new_rows)
+                        head[i] = -(rand() % (new_rows > 0 ? new_rows : 1));
+                }
             }
+
+            /* Keep fog/particles within bounds */
+            for (int i = 0; i < FOG_PARTICLES; i++) {
+                if (fog[i].x >= cols) fog[i].x = rand() % (cols > 0 ? cols : 1);
+                if (fog[i].y >= new_rows) fog[i].y = new_rows - 1;
+                if (fog[i].y < 0) fog[i].y = 0;
+            }
+
+            /* Recompute logo Y after height change */
+            logo_y = rows/2 - LOGO_H/2;
+
             rows = new_rows;
         }
         /* ---------------------------------------------------- */
@@ -727,8 +785,18 @@ int main() {
 
         wnoutrefresh(stdscr);
         doupdate();
-        usleep(delay);
+        {
+            struct timespec ts;
+            ts.tv_sec = delay / 1000000;
+            ts.tv_nsec = (delay % 1000000) * 1000;
+            nanosleep(&ts, NULL);
+        }
     }
+
+        /* Silence warnings for variables intentionally kept for future features */
+        (void)mix_mode_schemes;
+        (void)color_change_time;
+        (void)glitch_activation_time;
 
     endwin();
     free(glitch_state);
